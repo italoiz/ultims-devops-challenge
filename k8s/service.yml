@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: event-tracker
+  namespace: ultims
+  labels:
+    app: event-tracker
+spec:
+  type: ClusterIP
+  selector:
+    app: event-tracker
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP

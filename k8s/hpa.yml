@@ -1,0 +1,25 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: event-tracker
+  namespace: ultims
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: event-tracker
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          # Scale out at 70% average CPU. This gives enough headroom to absorb
+          # traffic spikes while the new pods are starting (~5s for this binary).
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      # Prevent flapping: wait 5 minutes before scaling down.
+      stabilizationWindowSeconds: 300

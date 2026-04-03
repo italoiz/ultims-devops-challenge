@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: event-tracker
+  namespace: ultims
+  labels:
+    app: event-tracker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: event-tracker
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Allow one extra pod during rollout to maintain capacity, but never
+      # drop below the current replica count. Safe default for a stateless API.
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: event-tracker
+      annotations:
+        # Tells Prometheus to scrape the metrics port directly.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      affinity:
+        podAntiAffinity:
+          # Soft anti-affinity: prefer spreading across nodes but don't block
+          # scheduling if there aren't enough nodes (e.g., in staging).
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - event-tracker
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: event-tracker
+          image: italoiz/ultims-event-tracker:latest
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: event-tracker-config
+          # Liveness: is the process alive? Simple TCP check would work too,
+          # but /health is cheap and gives us uptime info in logs.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # Readiness: can this pod serve traffic? /readiness checks deps.
+          readinessProbe:
+            httpGet:
+              path: /readiness
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 2
+          resources:
+            requests:
+              # Go binary with no heavy deps - 32Mi is plenty at idle.
+              # 50m CPU is enough for a lightweight API; the HPA scales out if needed.
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              # 128Mi cap prevents a memory leak from affecting neighbors.
+              # 200m CPU limit gives 4x headroom over the request.
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false

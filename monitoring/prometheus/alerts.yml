@@ -1,0 +1,33 @@
+groups:
+  - name: event-tracker
+    rules:
+      # Fire if more than 5% of responses are 5xx over a 5-minute window.
+      # 5% is aggressive enough to catch real problems but not so tight
+      # that a single retry storm triggers it.
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(api_requests_total{status=~"5.."}[5m]))
+            /
+            sum(rate(api_requests_total[5m]))
+          ) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High 5xx error rate on event-tracker"
+          description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      # Fire if p95 latency exceeds 500ms for 3 minutes.
+      # For a lightweight event ingestion API, anything above 500ms p95
+      # means something is wrong (backpressure, resource starvation, etc).
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95, sum(rate(events_processing_duration_seconds_bucket[5m])) by (le))
+          > 0.5
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High p95 latency on event processing"
+          description: "p95 event processing latency is {{ $value }}s over the last 5 minutes."

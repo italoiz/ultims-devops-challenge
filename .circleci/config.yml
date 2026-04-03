@@ -1,0 +1,133 @@
+version: 2.1
+
+orbs:
+  docker: circleci/docker@2.6.0
+  kubernetes: circleci/kubernetes@1.3.1
+
+executors:
+  go:
+    docker:
+      - image: cimg/go:1.22
+    resource_class: medium
+
+commands:
+  restore-go-cache:
+    steps:
+      - restore_cache:
+          keys:
+            - go-mod-v1-{{ checksum "go.sum" }}
+            - go-mod-v1-
+
+  save-go-cache:
+    steps:
+      - save_cache:
+          key: go-mod-v1-{{ checksum "go.sum" }}
+          paths:
+            - /home/circleci/go/pkg/mod
+
+jobs:
+  lint:
+    executor: go
+    steps:
+      - checkout
+      - restore-go-cache
+      - run:
+          name: go vet
+          command: go vet ./...
+      - save-go-cache
+
+  test:
+    executor: go
+    steps:
+      - checkout
+      - restore-go-cache
+      - run:
+          name: Run tests
+          command: go test -v -race -count=1 -coverprofile=coverage.out ./...
+      - save-go-cache
+      - store_artifacts:
+          path: coverage.out
+
+  build-and-push:
+    executor: docker/docker
+    steps:
+      - setup_remote_docker:
+          version: default
+      - checkout
+      - docker/build:
+          image: $DOCKER_IMAGE
+          tag: $CIRCLE_SHA1,latest
+      - docker/push:
+          image: $DOCKER_IMAGE
+          tag: $CIRCLE_SHA1,latest
+
+  deploy:
+    executor: go
+    parameters:
+      environment:
+        type: string
+    steps:
+      - checkout
+      - kubernetes/install-kubectl
+      - run:
+          name: Deploy to << parameters.environment >>
+          command: |
+            # Update the image tag in the deployment manifest.
+            # In production I'd use kustomize or a proper templating tool,
+            # but sed works fine for a challenge.
+            sed -i "s|image: .*|image: ${DOCKER_IMAGE}:${CIRCLE_SHA1}|" k8s/deployment.yml
+
+            kubectl apply -f k8s/namespace.yml
+            kubectl apply -f k8s/configmap.yml
+            kubectl apply -f k8s/deployment.yml
+            kubectl apply -f k8s/service.yml
+            kubectl apply -f k8s/hpa.yml
+
+            kubectl -n ultims rollout status deployment/event-tracker --timeout=120s
+
+workflows:
+  build-deploy:
+    jobs:
+      - lint
+      - test
+
+      - build-and-push:
+          requires:
+            - lint
+            - test
+          context: docker-credentials
+          filters:
+            branches:
+              only:
+                - main
+                - staging
+
+      # Staging: auto-deploy on merge to staging branch
+      - deploy:
+          name: deploy-staging
+          environment: staging
+          requires:
+            - build-and-push
+          context: k8s-staging
+          filters:
+            branches:
+              only: staging
+
+      # Production: manual approval gate before deploying main
+      - hold-production:
+          type: approval
+          requires:
+            - build-and-push
+          filters:
+            branches:
+              only: main
+
+      - deploy:
+          name: deploy-production
+          environment: production
+          requires:
+            - hold-production
+          context: k8s-production
+          filters:
+            branches:
+              only: main

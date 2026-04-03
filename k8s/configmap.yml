@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: event-tracker-config
+  namespace: ultims
+  labels:
+    app: event-tracker
+data:
+  # API listens on 8080, metrics on 9090. Splitting ports keeps metrics
+  # off the public ingress and lets Prometheus scrape without a NetworkPolicy exception.
+  PORT: "8080"
+  METRICS_PORT: "9090"

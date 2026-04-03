@@ -1,0 +1,37 @@
+services:
+  event-tracker:
+    build:
+      context: ../
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    environment:
+      PORT: "8080"
+      METRICS_PORT: "9090"
+
+  prometheus:
+    image: prom/prometheus:v2.50.1
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+    depends_on:
+      - event-tracker
+
+  grafana:
+    image: grafana/grafana:10.3.3
+    ports:
+      - "3000:3000"
+    environment:
+      # Default creds for local dev only.
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus

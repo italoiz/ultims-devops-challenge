@@ -1,0 +1,22 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "alerts.yml"
+
+scrape_configs:
+  # Scrape the event-tracker API metrics endpoint.
+  # In K8s this would use service discovery; for local docker-compose
+  # we point directly at the container.
+  - job_name: "event-tracker"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["event-tracker:9090"]
+        labels:
+          environment: "local"
+
+  # Prometheus self-monitoring
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
